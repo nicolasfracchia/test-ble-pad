@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Sperax Pro Controller</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .data-box {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+
+        button {
+            padding: 10px 15px;
+            margin: 5px 0;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Sperax Private Controller</h2>
+    <button onclick="connect()">1. CONNECT TREADMILL</button>
+    <p id="status">Status: Disconnected</p>
+
+    <div class="data-box">
+        <strong>LIVE DATA:</strong><br>
+        Time: <span id="val-time">00:00</span> |
+        Dist: <span id="val-dist">0.00</span> km |
+        Cals: <span id="val-cals">0</span> kcal
+    </div>
+
+    <hr>
+    <button onclick="sendCommand('f101010000f3')">START</button>
+    <button onclick="sendCommand('f101020000f4')">STOP</button>
+    <br>
+    <button onclick="changeSpeed(0.5)">SPEED +0.5</button>
+    <button onclick="changeSpeed(-0.5)">SPEED -0.5</button>
+    <p id="speed">Current Speed: 1.0 km/h</p>
+
+    <script>
+        let treadmillCharacteristic = null;
+        let currentSpeed = 1.0;
+
+        const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
+        const CHAR_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
+
+        async function connect() {
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [SERVICE_UUID] }],
+                    optionalServices: [SERVICE_UUID]
+                });
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                treadmillCharacteristic = await service.getCharacteristic(CHAR_UUID);
+
+                // Start listening for notifications
+                await treadmillCharacteristic.startNotifications();
+                treadmillCharacteristic.addEventListener('characteristicvaluechanged', handleData);
+
+                document.getElementById('status').innerText = "Status: Connected & Receiving Data";
+            } catch (error) {
+                alert("Error: " + error);
+            }
+        }
+
+        function handleData(event) {
+            const value = event.target.value;
+            // Typical Sperax Packet: [StartByte, Type, Speed, Minutes, Seconds, Dist_H, Dist_L, Cal_H, Cal_L, Checksum]
+            // Note: Offsets vary by model, this is the most common mapping
+            if (value.byteLength >= 9) {
+                const speed = value.getUint8(2) / 10;
+                const min = value.getUint8(3);
+                const sec = value.getUint8(4);
+                const dist = (value.getUint8(5) << 8 | value.getUint8(6)) / 100;
+                const cals = (value.getUint8(7) << 8 | value.getUint8(8));
+
+                document.getElementById('val-time').innerText = `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+                document.getElementById('val-dist').innerText = dist.toFixed(2);
+                document.getElementById('val-cals').innerText = cals;
+                document.getElementById('speed').innerText = `Current Speed: ${speed.toFixed(1)} km/h`;
+            }
+        }
+
+        async function sendCommand(hexString) {
+            if (!treadmillCharacteristic) return;
+            const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+            await treadmillCharacteristic.writeValue(bytes);
+        }
+
+        function changeSpeed(delta) {
+            currentSpeed = Math.min(Math.max(currentSpeed + delta, 0.6), 6.0);
+            const speedByte = Math.round(currentSpeed * 10);
+            const checksum = (0x02 + 0x01 + speedByte) & 0xFF;
+            const hexSpeed = speedByte.toString(16).padStart(2, '0');
+            const hexCheck = checksum.toString(16).padStart(2, '0');
+            sendCommand(`f10201${hexSpeed}00${hexCheck}`);
+        }
+    </script>
+</body>
+
+</html>
