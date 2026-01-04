@@ -59,24 +59,26 @@
 
         async function connect() {
             try {
+                // We use 'acceptAllDevices' to stop Chrome from hiding the treadmill
                 const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ services: [SERVICE_UUID] }],
-                    optionalServices: [SERVICE_UUID]
+                    acceptAllDevices: true,
+                    optionalServices: [SERVICE_UUID] // Must still list this so we can use it later
                 });
+
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService(SERVICE_UUID);
 
-                // Get the two separate characteristics
+                // Use the UUIDs we found earlier
                 writeChar = await service.getCharacteristic(WRITE_CHAR_UUID);
                 notifyChar = await service.getCharacteristic(NOTIFY_CHAR_UUID);
 
-                // Start listening for live data on FFF3
                 await notifyChar.startNotifications();
                 notifyChar.addEventListener('characteristicvaluechanged', handleData);
 
-                document.getElementById('status').innerText = "Status: Connected to " + device.name;
+                document.getElementById('status').innerText = "Connected to: " + device.name;
             } catch (error) {
-                alert("Connect Error: " + error);
+                console.error(error);
+                alert("If the list is empty, check if Location is ON and 'Nearby Devices' permission is granted to Chrome.");
             }
         }
 
