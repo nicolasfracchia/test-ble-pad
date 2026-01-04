@@ -2,117 +2,129 @@
 <html>
 
 <head>
-    <title>Sperax Pro Controller</title>
+    <title>Sperax RM-01 Controller</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
         body {
             font-family: sans-serif;
+            text-align: center;
             padding: 20px;
-            line-height: 1.6;
-        }
-
-        .data-box {
-            background: #f4f4f4;
-            padding: 10px;
-            border-radius: 5px;
-            margin: 10px 0;
-            font-family: monospace;
+            background: #1a1a1a;
+            color: white;
         }
 
         button {
-            padding: 10px 15px;
-            margin: 5px 0;
+            width: 80%;
+            padding: 15px;
+            margin: 10px;
+            font-weight: bold;
+            border-radius: 8px;
+            border: none;
             cursor: pointer;
+        }
+
+        .btn-connect {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-mode {
+            background: #2196F3;
+            color: white;
+        }
+
+        /* Blue for Mode */
+        .btn-start {
+            background: #ff9800;
+            color: white;
+        }
+
+        .btn-stop {
+            background: #f44336;
+            color: white;
+        }
+
+        .data {
+            background: #333;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-family: monospace;
         }
     </style>
 </head>
 
 <body>
-    <h2>Sperax Private Controller - v2</h2>
-    <button onclick="connect()">1. CONNECT TREADMILL</button>
-    <p id="status">Status: Disconnected</p>
 
-    <div class="data-box">
-        <strong>LIVE DATA:</strong><br>
-        Time: <span id="val-time">00:00</span> |
-        Dist: <span id="val-dist">0.00</span> km |
-        Cals: <span id="val-cals">0</span> kcal
+    <h2>Sperax RM-01 - V3.0</h2>
+    <button class="btn-connect" onclick="connect()">1. CONNECT TO E2E7B7</button>
+    <p id="status">Status: Offline</p>
+
+    <div class="data">
+        TIME: <span id="val-time">00:00</span> | DIST: <span id="val-dist">0.00</span> km
     </div>
 
     <hr>
-    <button onclick="sendCommand('f101010000f3')">START</button>
-    <button onclick="sendCommand('f101020000f4')">STOP</button>
-    <br>
+    <button class="btn-mode" onclick="sendCommand('f101040000f6')">2. SWITCH TO WALKING MODE</button>
+
+    <button class="btn-start" onclick="sendCommand('f101010000f3')">3. START MOTOR</button>
+    <button class="btn-stop" onclick="sendCommand('f101020000f4')">STOP</button>
+    <hr>
     <button onclick="changeSpeed(0.5)">SPEED +0.5</button>
     <button onclick="changeSpeed(-0.5)">SPEED -0.5</button>
-    <p id="speed">Current Speed: 1.0 km/h</p>
+    <p id="speed-label">Target: 1.0 km/h</p>
 
     <script>
-        let treadmillCharacteristic = null;
         let writeChar = null;
-        let notifyChar = null;
         let currentSpeed = 1.0;
 
         const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
-        const WRITE_CHAR_UUID = '0000fff2-0000-1000-8000-00805f9b34fb';
-        const NOTIFY_CHAR_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';
+        const WRITE_UUID = '0000fff2-0000-1000-8000-00805f9b34fb';
+        const NOTIFY_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';
 
         async function connect() {
             try {
-                // We use 'acceptAllDevices' to stop Chrome from hiding the treadmill
+                // Strict filter for your specific device
                 const device = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: [SERVICE_UUID] // Must still list this so we can use it later
+                    filters: [{ name: 'SPERAX_RM-01_E2E7B7' }],
+                    optionalServices: [SERVICE_UUID]
                 });
 
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService(SERVICE_UUID);
 
-                // Use the UUIDs we found earlier
-                writeChar = await service.getCharacteristic(WRITE_CHAR_UUID);
-                notifyChar = await service.getCharacteristic(NOTIFY_CHAR_UUID);
+                writeChar = await service.getCharacteristic(WRITE_UUID);
+                const notifyChar = await service.getCharacteristic(NOTIFY_UUID);
 
                 await notifyChar.startNotifications();
-                notifyChar.addEventListener('characteristicvaluechanged', handleData);
+                notifyChar.addEventListener('characteristicvaluechanged', (e) => {
+                    const val = e.target.value;
+                    if (val.byteLength >= 6) {
+                        document.getElementById('val-time').innerText =
+                            val.getUint8(3).toString().padStart(2, '0') + ":" + val.getUint8(4).toString().padStart(2, '0');
+                        document.getElementById('val-dist').innerText =
+                            ((val.getUint8(5) << 8 | val.getUint8(6)) / 100).toFixed(2);
+                    }
+                });
 
-                document.getElementById('status').innerText = "Connected to: " + device.name;
-            } catch (error) {
-                console.error(error);
-                alert("If the list is empty, check if Location is ON and 'Nearby Devices' permission is granted to Chrome.");
+                document.getElementById('status').innerText = "Connected!";
+            } catch (err) {
+                alert("Connect Error: " + err);
             }
         }
 
-        function handleData(event) {
-            const value = event.target.value;
-            // Typical Sperax Packet: [StartByte, Type, Speed, Minutes, Seconds, Dist_H, Dist_L, Cal_H, Cal_L, Checksum]
-            // Note: Offsets vary by model, this is the most common mapping
-            if (value.byteLength >= 9) {
-                const speed = value.getUint8(2) / 10;
-                const min = value.getUint8(3);
-                const sec = value.getUint8(4);
-                const dist = (value.getUint8(5) << 8 | value.getUint8(6)) / 100;
-                const cals = (value.getUint8(7) << 8 | value.getUint8(8));
-
-                document.getElementById('val-time').innerText = `${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
-                document.getElementById('val-dist').innerText = dist.toFixed(2);
-                document.getElementById('val-cals').innerText = cals;
-                document.getElementById('speed').innerText = `Current Speed: ${speed.toFixed(1)} km/h`;
-            }
-        }
-
-        async function sendCommand(hexString) {
+        async function sendCommand(hex) {
             if (!writeChar) return alert("Connect first!");
-            const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+            const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
             await writeChar.writeValue(bytes);
         }
 
         function changeSpeed(delta) {
             currentSpeed = Math.min(Math.max(currentSpeed + delta, 0.6), 6.0);
-            const speedByte = Math.round(currentSpeed * 10);
-            const checksum = (0x02 + 0x01 + speedByte) & 0xFF;
-            const hexSpeed = speedByte.toString(16).padStart(2, '0');
-            const hexCheck = checksum.toString(16).padStart(2, '0');
-            sendCommand(`f10201${hexSpeed}00${hexCheck}`);
+            document.getElementById('speed-label').innerText = `Target: ${currentSpeed.toFixed(1)} km/h`;
+            const sByte = Math.round(currentSpeed * 10);
+            const check = (0x02 + 0x01 + sByte) & 0xFF;
+            sendCommand(`f10201${sByte.toString(16).padStart(2, '0')}00${check.toString(16).padStart(2, '0')}`);
         }
     </script>
 </body>
