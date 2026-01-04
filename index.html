@@ -49,10 +49,13 @@
 
     <script>
         let treadmillCharacteristic = null;
+        let writeChar = null;
+        let notifyChar = null;
         let currentSpeed = 1.0;
 
         const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
-        const CHAR_UUID = '0000fff1-0000-1000-8000-00805f9b34fb';
+        const WRITE_CHAR_UUID = '0000fff2-0000-1000-8000-00805f9b34fb';
+        const NOTIFY_CHAR_UUID = '0000fff3-0000-1000-8000-00805f9b34fb';
 
         async function connect() {
             try {
@@ -62,15 +65,18 @@
                 });
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService(SERVICE_UUID);
-                treadmillCharacteristic = await service.getCharacteristic(CHAR_UUID);
 
-                // Start listening for notifications
-                await treadmillCharacteristic.startNotifications();
-                treadmillCharacteristic.addEventListener('characteristicvaluechanged', handleData);
+                // Get the two separate characteristics
+                writeChar = await service.getCharacteristic(WRITE_CHAR_UUID);
+                notifyChar = await service.getCharacteristic(NOTIFY_CHAR_UUID);
 
-                document.getElementById('status').innerText = "Status: Connected & Receiving Data";
+                // Start listening for live data on FFF3
+                await notifyChar.startNotifications();
+                notifyChar.addEventListener('characteristicvaluechanged', handleData);
+
+                document.getElementById('status').innerText = "Status: Connected to " + device.name;
             } catch (error) {
-                alert("Error: " + error);
+                alert("Connect Error: " + error);
             }
         }
 
@@ -93,9 +99,9 @@
         }
 
         async function sendCommand(hexString) {
-            if (!treadmillCharacteristic) return;
+            if (!writeChar) return alert("Connect first!");
             const bytes = new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
-            await treadmillCharacteristic.writeValue(bytes);
+            await writeChar.writeValue(bytes);
         }
 
         function changeSpeed(delta) {
